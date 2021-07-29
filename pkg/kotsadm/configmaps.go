@@ -1,21 +1,20 @@
 package kotsadm
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"io/ioutil"
 	"path/filepath"
+	"strconv"
 
 	"github.com/pkg/errors"
 	kotsadmobjects "github.com/replicatedhq/kots/pkg/kotsadm/objects"
+	kotsadmresources "github.com/replicatedhq/kots/pkg/kotsadm/resources"
 	"github.com/replicatedhq/kots/pkg/kotsadm/types"
 	corev1 "k8s.io/api/core/v1"
 	kuberneteserrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
 )
 
 func getConfigMapsYAML(deployOptions types.DeployOptions) (map[string][]byte, error) {
@@ -32,7 +31,7 @@ func getConfigMapsYAML(deployOptions types.DeployOptions) (map[string][]byte, er
 }
 
 func ensureKotsadmConfig(deployOptions types.DeployOptions, clientset *kubernetes.Clientset) error {
-	if err := EnsurePrivateKotsadmRegistrySecret(deployOptions.Namespace, deployOptions.KotsadmOptions, clientset); err != nil {
+	if err := kotsadmresources.EnsurePrivateKotsadmRegistrySecret(deployOptions.Namespace, deployOptions.KotsadmOptions, clientset); err != nil {
 		return errors.Wrap(err, "failed to ensure private kotsadm registry secret")
 	}
 
@@ -63,6 +62,13 @@ func ensureConfigMaps(deployOptions types.DeployOptions, clientset *kubernetes.C
 	existingConfigMap = updateConfigMap(existingConfigMap, desiredConfigMap)
 
 	_, err = clientset.CoreV1().ConfigMaps(deployOptions.Namespace).Update(context.TODO(), existingConfigMap, metav1.UpdateOptions{})
+	if err != nil {
+		return errors.Wrap(err, "failed to update kotsadm config map")
+	}
+
+	// Update the migration status of minio snapshot volumes
+	cm.Data["minio-enabled-snapshots"] = strconv.FormatBool(deployOptions.IncludeMinioSnapshots)
+	_, err = clientset.CoreV1().ConfigMaps(deployOptions.Namespace).Update(context.TODO(), cm, metav1.UpdateOptions{})
 	if err != nil {
 		return errors.Wrap(err, "failed to update kotsadm config map")
 	}

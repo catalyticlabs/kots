@@ -125,8 +125,7 @@ func VeleroConfigureInternalCmd() *cobra.Command {
 				return errors.New("velero namespace not found")
 			}
 
-			// init containers are names differently starting in velero 1.6
-			if !veleroStatus.ContainsPlugin("velero-plugin-for-aws") && !veleroStatus.ContainsPlugin("velero-velero-plugin-for-aws") {
+			if !veleroStatus.ContainsPlugin("velero-plugin-for-aws") {
 				return errors.New("velero does not have the 'velero-plugin-for-aws' installed; " +
 					"consult https://kots.io/kotsadm/snapshots/overview/ for install instructions`)")
 			}
@@ -181,8 +180,7 @@ func VeleroConfigureAmazonS3Cmd() *cobra.Command {
 				return errors.New("velero namespace not found")
 			}
 
-			// init containers are names differently starting in velero 1.6
-			if !veleroStatus.ContainsPlugin("velero-plugin-for-aws") && !veleroStatus.ContainsPlugin("velero-velero-plugin-for-aws") {
+			if !veleroStatus.ContainsPlugin("velero-plugin-for-aws") {
 				return errors.New("velero does not have the 'velero-plugin-for-aws' installed; " +
 					"consult https://kots.io/kotsadm/snapshots/overview/ for install instructions`)")
 			}
@@ -366,8 +364,7 @@ func VeleroConfigureOtherS3Cmd() *cobra.Command {
 				}
 			}
 
-			// init containers are names differently starting in velero 1.6
-			if !veleroStatus.ContainsPlugin("velero-plugin-for-aws") && !veleroStatus.ContainsPlugin("velero-velero-plugin-for-aws") {
+			if !veleroStatus.ContainsPlugin("velero-plugin-for-aws") {
 				return errors.New("velero does not have the 'velero-plugin-for-aws' installed; " +
 					"consult https://kots.io/kotsadm/snapshots/overview/ for install instructions`)")
 			}
@@ -448,8 +445,7 @@ func VeleroConfigureGCPCmd() *cobra.Command {
 				return errors.New("velero namespace not found")
 			}
 
-			// init containers are names differently starting in velero 1.6
-			if !veleroStatus.ContainsPlugin("velero-plugin-for-gcp") && !veleroStatus.ContainsPlugin("velero-velero-plugin-for-gcp") {
+			if !veleroStatus.ContainsPlugin("velero-plugin-for-gcp") {
 				return errors.New("velero does not have the 'velero-plugin-for-gcp' installed; " +
 					"consult https://kots.io/kotsadm/snapshots/overview/ for install instructions`)")
 			}
@@ -611,8 +607,7 @@ func VeleroConfigureAzureCmd() *cobra.Command {
 				return errors.New("velero namespace not found")
 			}
 
-			// init containers are names differently starting in velero 1.6
-			if !veleroStatus.ContainsPlugin("velero-plugin-for-microsoft-azure") || !veleroStatus.ContainsPlugin("velero-velero-plugin-for-microsoft-azure") {
+			if !veleroStatus.ContainsPlugin("velero-plugin-for-microsoft-azure") {
 				return errors.New("velero does not have the 'velero-plugin-for-microsoft-azure' installed; " +
 					"consult https://kots.io/kotsadm/snapshots/overview/ for install instructions`)")
 			}

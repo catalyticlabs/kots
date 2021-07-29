@@ -13,6 +13,7 @@ type UpgradeOptions struct {
 	StorageBaseURI            string
 	StorageBaseURIPlainHTTP   bool
 	IncludeMinio              bool
+	IncludeMinioSnapshots     bool
 	IncludeDockerDistribution bool
 
 	KotsadmOptions KotsadmOptions

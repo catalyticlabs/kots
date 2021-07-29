@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -19,6 +20,7 @@ import (
 	"github.com/replicatedhq/kots/pkg/kotsadm/types"
 	"github.com/replicatedhq/kots/pkg/kotsutil"
 	"github.com/replicatedhq/kots/pkg/logger"
+	"github.com/replicatedhq/kots/pkg/snapshot"
 	corev1 "k8s.io/api/core/v1"
 	kuberneteserrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -116,6 +118,11 @@ func Upgrade(clientset *kubernetes.Clientset, upgradeOptions types.UpgradeOption
 		return errors.Wrap(err, "failed to read deploy options")
 	}
 
+	// If user has passed in the flag to migrate minio snapshots, save this status as part of the install
+	if !upgradeOptions.IncludeMinioSnapshots {
+		deployOptions.IncludeMinioSnapshots = false
+	}
+
 	// these options are not stored in cluster (yet)
 	deployOptions.Timeout = upgradeOptions.Timeout
 	deployOptions.KotsadmOptions = upgradeOptions.KotsadmOptions
@@ -125,6 +132,14 @@ func Upgrade(clientset *kubernetes.Clientset, upgradeOptions types.UpgradeOption
 	deployOptions.StorageBaseURIPlainHTTP = upgradeOptions.StorageBaseURIPlainHTTP
 	deployOptions.IncludeMinio = upgradeOptions.IncludeMinio
 	deployOptions.IncludeDockerDistribution = upgradeOptions.IncludeDockerDistribution
+
+	// Attempt migrations to fail early. Use only
+	// TODO (dans): Migrate minio snapshots to local-pv-plugin
+	if !upgradeOptions.IncludeMinioSnapshots {
+		if err = migrateExistingMinioFilesystemDeployments(log, deployOptions); err != nil {
+			return errors.Wrap(err, "failed to migrate minio filesystem")
+		}
+	}
 
 	if err := ensureKotsadm(*deployOptions, clientset, log); err != nil {
 		return errors.Wrap(err, "failed to upgrade admin console")
@@ -981,6 +996,26 @@ func readDeployOptionsFromCluster(namespace string, clientset *kubernetes.Client
 		return nil, errors.Wrap(err, "failed to get app metadata from configmap")
 	}
 
+	// Get minio snapshot migration status v1.48.0
+	kostadmConfig, err := clientset.CoreV1().ConfigMaps(deployOptions.Namespace).Get(context.TODO(), "kotsadm-config", metav1.GetOptions{})
+	if err == nil {
+		var includeMinioSnapshots bool
+		includeMinioSnapshotStr, ok := kostadmConfig.Data["minio-enabled-snapshots"]
+
+		if ok {
+			includeMinioSnapshots, err = strconv.ParseBool(includeMinioSnapshotStr)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to parse minio-enabled-snapshots")
+			}
+		} else {
+			includeMinioSnapshots = true
+		}
+
+		deployOptions.IncludeMinioSnapshots = includeMinioSnapshots
+	} else if !kuberneteserrors.IsNotFound(err) {
+		return nil, errors.Wrap(err, "failed to get kotsadm config from configmap")
+	}
+
 	return &deployOptions, nil
 }
 
@@ -1032,4 +1067,64 @@ func GetKotsadmOptionsFromCluster(namespace string, clientset kubernetes.Interfa
 	kotsadmOptions.Username = creds.Username
 	kotsadmOptions.Password = creds.Password
 	return kotsadmOptions, nil
+}
+
+func migrateExistingMinioFilesystemDeployments(log *logger.CLILogger, deployOptions *types.DeployOptions) error {
+	// Check that a Filesystem Snapshot Setting Exists
+	prevFsConfig, err := snapshot.GetCurrentFileSystemConfig(context.TODO(), deployOptions.Namespace)
+	if err != nil {
+		errors.Wrap(err, "failed to get check for filesystem snapshot")
+	}
+	if prevFsConfig == nil {
+		return nil
+	}
+	if prevFsConfig.NFS == nil && prevFsConfig.HostPath == nil {
+		return nil
+	}
+
+	veleroStatus, err := snapshot.DetectVelero(context.TODO(), deployOptions.Namespace)
+	if err != nil {
+		return errors.Wrap(err, "failed to detect velero for filesystem migration")
+	}
+	if veleroStatus == nil {
+		return errors.New("velero is not installed - cannot perform migration")
+	}
+
+	if !veleroStatus.ContainsPlugin("local-volume-provider") {
+		log.Info("velero local-volume-provider plugin is not installed - migration cannot be performed")
+		log.Info("")
+		log.Info("---TO INSTALL the local-volume-provider plugin---")
+		log.Info("For existing cluster installations, complete the installation instructions here:")
+		log.Info("https://github.com/replicatedhq/local-volume-provider")
+		log.Info("")
+		log.Info("If you're seeing this message on an embedded cluster installation, please contact your vendor for support.")
+		log.Info("")
+		log.Info("After the plugin has been installed, re-run your upgrade command.")
+
+		return errors.New("velero local-volume-provider plugin is not installed - cannot perform migration")
+	}
+
+	previousBsl, err := snapshot.FindBackupStoreLocation(context.TODO(), deployOptions.Namespace)
+	if err != nil {
+		return errors.Wrap(err, "failed to get default backupStorageLocation")
+	}
+
+	previousBackups, err := snapshot.ListInstanceBackups(context.TODO(), snapshot.ListInstanceBackupsOptions{Namespace: deployOptions.Namespace})
+	if err != nil {
+		return errors.Wrap(err, "failed to list existing backups")
+	}
+
+	success := false
+	defer snapshot.RevertToMinioFS(success)
+
+	// Execute pod here**
+	// Ensure the file permissions for the potential mount will succeed by running a job to check. (hand-wave on how to do this)
+	// Create the new local-pv BSL, including the volume, from the existing configuration. Care will be needed to take into consideration the bucket, which is not a construct on the filesystem other than another folder. This BSL should be set as the new default.
+	// Wait for the volume to be provisioned (Velero pod will be READY).
+	// Poll Velero backups and compare with the list from step 2. If successful, go to next step. If not, revert existing Minio BSL back to default.
+	// Replace the init container in Velero with one that deletes the old Minio data directory.
+	// Remove existing BSL for Minio.
+	// Remove the Minio Deployment.
+	success = true
+	return nil
 }

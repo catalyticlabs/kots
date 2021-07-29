@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"context"
@@ -9,7 +10,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/replicatedhq/kots/pkg/k8sutil"
-	"github.com/replicatedhq/kots/pkg/kotsadm"
+	kotsadmresources "github.com/replicatedhq/kots/pkg/kotsadm/resources"
 	kotsadmtypes "github.com/replicatedhq/kots/pkg/kotsadm/types"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/cmd/cli/serverstatus"
@@ -46,7 +47,7 @@ type VeleroStatus struct {
 
 func (s *VeleroStatus) ContainsPlugin(plugin string) bool {
 	for _, x := range s.Plugins {
-		if x == plugin {
+		if strings.Contains(x, plugin) {
 			return true
 		}
 	}
@@ -172,11 +173,11 @@ func EnsureVeleroPermissions(ctx context.Context, clientset kubernetes.Interface
 		return errors.New(fmt.Sprintf("could not detect velero in '%s' namespace", veleroNamespace))
 	}
 
-	if err := kotsadm.EnsureKotsadmRole(verifiedVeleroNamespace, clientset); err != nil {
+	if err := kotsadmresources.EnsureKotsadmRole(verifiedVeleroNamespace, clientset); err != nil {
 		return errors.Wrap(err, "failed to ensure kotsadm role")
 	}
 
-	if err := kotsadm.EnsureKotsadmRoleBinding(verifiedVeleroNamespace, kotsadmNamespace, clientset); err != nil {
+	if err := kotsadmresources.EnsureKotsadmRoleBinding(verifiedVeleroNamespace, kotsadmNamespace, clientset); err != nil {
 		return errors.Wrap(err, "failed to ensure kotsadm rolebinding")
 	}
 

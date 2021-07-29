@@ -6,6 +6,12 @@ import (
 	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 )
 
+type FsProvider string
+
+const (
+	LocalVolumeFsProvider FsProvider = "local-volume"
+)
+
 type StoreAWS struct {
 	Region          string `json:"region"`
 	AccessKeyID     string `json:"accessKeyID"`
@@ -66,8 +72,9 @@ type Store struct {
 }
 
 type FileSystemConfig struct {
-	NFS      *NFSConfig `json:"nfs,omitempty"`
-	HostPath *string    `json:"hostPath,omitempty"`
+	NFS      *NFSConfig  `json:"nfs,omitempty"`
+	HostPath *string     `json:"hostPath,omitempty"`
+	Provider *FsProvider `json:"provider,omitempty"`
 }
 
 type NFSConfig struct {

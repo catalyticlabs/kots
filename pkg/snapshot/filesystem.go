@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/replicatedhq/kots/pkg/k8sutil"
-	"github.com/replicatedhq/kots/pkg/kotsadm"
+	kotsadmresources "github.com/replicatedhq/kots/pkg/kotsadm/resources"
 	kotsadmtypes "github.com/replicatedhq/kots/pkg/kotsadm/types"
 	kotsadmversion "github.com/replicatedhq/kots/pkg/kotsadm/version"
 	"github.com/replicatedhq/kots/pkg/kotsutil"
@@ -55,7 +55,7 @@ func (e ResetFileSystemError) Error() string {
 
 func DeployFileSystemMinio(ctx context.Context, clientset kubernetes.Interface, deployOptions FileSystemDeployOptions, registryOptions kotsadmtypes.KotsadmOptions) error {
 	// file system minio can be deployed before installing kotsadm or the application (e.g. disaster recovery)
-	err := kotsadm.EnsurePrivateKotsadmRegistrySecret(deployOptions.Namespace, registryOptions, clientset)
+	err := kotsadmresources.EnsurePrivateKotsadmRegistrySecret(deployOptions.Namespace, registryOptions, clientset)
 	if err != nil {
 		return errors.Wrap(err, "failed to ensure private kotsadm registry secret")
 	}
@@ -138,6 +138,8 @@ func ensureFileSystemConfigMap(ctx context.Context, clientset kubernetes.Interfa
 
 func fileSystemConfigMapResource(fileSystemConfig types.FileSystemConfig) *corev1.ConfigMap {
 	data := map[string]string{}
+
+	// TODO: put in the migration status here
 
 	if fileSystemConfig.HostPath != nil {
 		data["HOSTPATH"] = *fileSystemConfig.HostPath
@@ -847,4 +849,10 @@ func GetCurrentFileSystemConfig(ctx context.Context, namespace string) (*types.F
 	}
 
 	return &fileSystemConfig, nil
+}
+
+func RevertToMinioFS(success bool) {
+	if !success {
+		fmt.Println("reverting the migration here")
+	}
 }
