@@ -21,6 +21,7 @@ import (
 	"github.com/replicatedhq/kots/pkg/kotsutil"
 	"github.com/replicatedhq/kots/pkg/logger"
 	"github.com/replicatedhq/kots/pkg/snapshot"
+	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	corev1 "k8s.io/api/core/v1"
 	kuberneteserrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1069,6 +1070,10 @@ func GetKotsadmOptionsFromCluster(namespace string, clientset kubernetes.Interfa
 	return kotsadmOptions, nil
 }
 
+// migrateExistingMinioFilesystemDeployments excutes a migration of minio snapshots deployment to the local-volume-provider
+// plugin and validates the backups are still accessible. The plugin must already be installed on the cluster with velero
+// accessible. This function will configure the plugin and update the default backup storage location. If the backup storage location
+// cannot be updated or the plugin fails, the
 func migrateExistingMinioFilesystemDeployments(log *logger.CLILogger, deployOptions *types.DeployOptions) error {
 	// Check that a Filesystem Snapshot Setting Exists
 	prevFsConfig, err := snapshot.GetCurrentFileSystemConfig(context.TODO(), deployOptions.Namespace)
@@ -1089,6 +1094,7 @@ func migrateExistingMinioFilesystemDeployments(log *logger.CLILogger, deployOpti
 	if veleroStatus == nil {
 		return errors.New("velero is not installed - cannot perform migration")
 	}
+	veleroNamespace := veleroStatus.Namespace
 
 	if !veleroStatus.ContainsPlugin("local-volume-provider") {
 		log.Info("velero local-volume-provider plugin is not installed - migration cannot be performed")
@@ -1104,27 +1110,67 @@ func migrateExistingMinioFilesystemDeployments(log *logger.CLILogger, deployOpti
 		return errors.New("velero local-volume-provider plugin is not installed - cannot perform migration")
 	}
 
-	previousBsl, err := snapshot.FindBackupStoreLocation(context.TODO(), deployOptions.Namespace)
+	bsl, err := snapshot.FindBackupStoreLocation(context.TODO(), deployOptions.Namespace)
 	if err != nil {
 		return errors.Wrap(err, "failed to get default backupStorageLocation")
 	}
+	previousBsl := bsl.DeepCopy()
 
-	previousBackups, err := snapshot.ListInstanceBackups(context.TODO(), snapshot.ListInstanceBackupsOptions{Namespace: deployOptions.Namespace})
+	previousBackups, err := snapshot.ListAllBackups(context.TODO(), snapshot.ListInstanceBackupsOptions{Namespace: deployOptions.Namespace})
 	if err != nil {
 		return errors.Wrap(err, "failed to list existing backups")
 	}
 
-	success := false
-	defer snapshot.RevertToMinioFS(success)
+	// Add the config map to configure the new plugin
+	err = snapshot.EnsureLocalVolumeProviderConfigMap(deployOptions.Namespace, prevFsConfig, veleroNamespace)
+	if err != nil {
+		return errors.Wrap(err, "failed to ensure velero local-volume-provider config map")
+	}
 
-	// Execute pod here**
-	// Ensure the file permissions for the potential mount will succeed by running a job to check. (hand-wave on how to do this)
-	// Create the new local-pv BSL, including the volume, from the existing configuration. Care will be needed to take into consideration the bucket, which is not a construct on the filesystem other than another folder. This BSL should be set as the new default.
-	// Wait for the volume to be provisioned (Velero pod will be READY).
-	// Poll Velero backups and compare with the list from step 2. If successful, go to next step. If not, revert existing Minio BSL back to default.
-	// Replace the init container in Velero with one that deletes the old Minio data directory.
-	// Remove existing BSL for Minio.
-	// Remove the Minio Deployment.
+	success := false
+	defer func() {
+		if !success {
+			snapshot.RevertToMinioFS(context.TODO(), veleroNamespace, bsl, previousBsl)
+		}
+	}()
+
+	snapshot.LocalVolumeProviderBsl(prevFsConfig, bsl)
+	if err := snapshot.UpdateBackupStorageLocation(context.TODO(), veleroNamespace, bsl); err != nil {
+		errors.Wrap(err, "failed to update new backup storage location")
+	}
+
+	// Wait for the volume to be provisioned (Velero pod will be READY). (Check that the volume is accesible by the Velero pod)
+	if err = snapshot.WaitForDefaultBslAvailableAndSynced(context.TODO(), veleroNamespace); err != nil {
+		return errors.Wrap(err, "failed to wait for default backup storage location to be available")
+	}
+
+	// validate backups
+	currentBackups, err := snapshot.ListInstanceBackups(context.TODO(), snapshot.ListInstanceBackupsOptions{Namespace: deployOptions.Namespace})
+	if err != nil {
+		return errors.Wrap(err, "failed to list revised backups")
+	}
+
+	for _, prevBackup := range previousBackups {
+		if !sliceHasBackup(currentBackups, prevBackup.ObjectMeta.Name) {
+			return errors.Errorf("failed to find backup %s in the new Velero deployment", prevBackup.Name)
+		}
+	}
+
+	// Cleanup on success
 	success = true
+	if err = snapshot.DeleteFileSystemMinio(context.TODO(), deployOptions.Namespace); err != nil {
+		return errors.Wrap(err, "failed to cleanup fs minio")
+	}
+
 	return nil
+}
+
+// sliceHasBackup returns true if a backup with the same name exists in a slice of Velero Backup objects.
+func sliceHasBackup(backups []velerov1api.Backup, backupName string) bool {
+	for _, backup := range backups {
+		if backup.ObjectMeta.Name == backupName {
+			return true
+		}
+	}
+	return false
 }

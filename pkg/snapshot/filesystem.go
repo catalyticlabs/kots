@@ -20,6 +20,7 @@ import (
 	kotss3 "github.com/replicatedhq/kots/pkg/s3"
 	types "github.com/replicatedhq/kots/pkg/snapshot/types"
 	"github.com/replicatedhq/kots/pkg/util"
+	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	kuberneteserrors "k8s.io/apimachinery/pkg/api/errors"
@@ -851,8 +852,136 @@ func GetCurrentFileSystemConfig(ctx context.Context, namespace string) (*types.F
 	return &fileSystemConfig, nil
 }
 
-func RevertToMinioFS(success bool) {
-	if !success {
-		fmt.Println("reverting the migration here")
+func RevertToMinioFS(ctx context.Context, veleroNamespace string, currentBsl, previousBsl *velerov1api.BackupStorageLocation) error {
+	currentBsl.Spec = previousBsl.Spec
+	err := UpdateBackupStorageLocation(ctx, veleroNamespace, currentBsl)
+	if err != nil {
+		return errors.Wrap(err, "failed to revert to minio backup storage location")
+	}
+	return nil
+}
+
+// TODO (dans) doc.
+// Leave the secret, just in case
+func DeleteFileSystemMinio(ctx context.Context, kotsadmNamespace string) error {
+	clientset, err := k8sutil.GetClientset()
+	if err != nil {
+		return errors.Wrap(err, "failed to get kubernetes clientset")
+	}
+
+	if err := clientset.CoreV1().ConfigMaps(kotsadmNamespace).Delete(ctx, FileSystemMinioConfigMapName, metav1.DeleteOptions{}); err != nil {
+		return errors.Wrap(err, "failed to delete fs minio config map")
+	}
+
+	if err := clientset.AppsV1().Deployments(kotsadmNamespace).Delete(ctx, FileSystemMinioDeploymentName, metav1.DeleteOptions{}); err != nil {
+		return errors.Wrap(err, "failed to delete fs minio deployment")
+	}
+
+	if err := clientset.CoreV1().Services(kotsadmNamespace).Delete(ctx, FileSystemMinioServiceName, metav1.DeleteOptions{}); err != nil {
+		return errors.Wrap(err, "failed to delete fs minio service")
+	}
+
+	return nil
+}
+
+// TOOD (dans): doc
+func EnsureLocalVolumeProviderConfigMap(namespace string, prevFsConfig *types.FileSystemConfig, veleroNamespace string) error {
+	clientset, err := k8sutil.GetClientset()
+	if err != nil {
+		return errors.Wrap(err, "failed to get kubernetes clientset")
+	}
+
+	var pluginConfigMapLabel string
+	if prevFsConfig.HostPath != nil {
+		pluginConfigMapLabel = "replicated.com/nfs"
+	} else {
+		pluginConfigMapLabel = "replicated.com/hostpath"
+	}
+
+	listOpts := metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=%s", pluginConfigMapLabel, "ObjectStore"),
+	}
+
+	configmaps, err := clientset.CoreV1().ConfigMaps(namespace).List(context.TODO(), listOpts)
+	if err != nil {
+		return errors.Wrap(err, "failed to list existing config maps")
+	}
+
+	if len(configmaps.Items) == 0 {
+		// Create the config map
+		configmap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "local-volume-provider-config",
+				Namespace: veleroNamespace,
+				Labels: map[string]string{
+					"velero.io/plugin-config": "",
+					pluginConfigMapLabel:      "ObjectStore",
+				},
+			},
+			// These values are the settings used for the minio filesystem deployment
+			Data: map[string]string{
+				"securityContextRunAsUser": "1001",
+				"securityContextFsGroup":   "1001",
+			},
+		}
+
+		_, err = clientset.CoreV1().ConfigMaps(namespace).Create(context.TODO(), configmap, metav1.CreateOptions{})
+		if err != nil {
+			return errors.Wrap(err, "failed to create new local-volume-provider config map")
+		}
+
+		return nil
+	}
+
+	configmap := &configmaps.Items[0]
+	configmap.Data["securityContextRunAsUser"] = "1001"
+	configmap.Data["securityContextFsGroup"] = "1001"
+
+	_, err = clientset.CoreV1().ConfigMaps(namespace).Update(context.TODO(), configmap, metav1.UpdateOptions{})
+	if err != nil {
+		return errors.Wrap(err, "failed to update local-volume-provider config map")
+	}
+
+	return nil
+}
+
+func LocalVolumeProviderBsl(prevFsConfig *types.FileSystemConfig, bsl *velerov1api.BackupStorageLocation) {
+	var pluginProvider string
+	var bucket string
+	var bslConfig map[string]string
+	if prevFsConfig.HostPath != nil {
+		pluginProvider = "replicated.com/nfs"
+
+		path := *prevFsConfig.HostPath
+		bucket = "kotsadm-hostpath-snapshots-migration"
+
+		bslConfig = map[string]string{
+			"path":              path,
+			"restricRepoPrefix": fmt.Sprintf("var/velero-local-volume-provider/%s/velero/restic", bucket),
+		}
+	} else {
+		pluginProvider = "replicated.com/hostpath"
+
+		path := prevFsConfig.NFS.Path
+		bucket = "kotsadm-nfs-snapshots-migration"
+
+		bslConfig = map[string]string{
+			"path":              path,
+			"server":            prevFsConfig.NFS.Server,
+			"restricRepoPrefix": fmt.Sprintf("var/velero-local-volume-provider/%s/velero/restic", bucket),
+		}
+	}
+
+	// Replace the default BSL
+	bsl.Spec = velerov1api.BackupStorageLocationSpec{
+		Provider: pluginProvider,
+		StorageType: velerov1api.StorageType{
+			ObjectStorage: &velerov1api.ObjectStorageLocation{
+				Bucket: bucket,
+				// This is the default bucket that was used by Minio
+				Prefix: "/velero",
+			},
+		},
+		Config: bslConfig,
 	}
 }

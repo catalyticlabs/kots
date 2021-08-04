@@ -80,9 +80,9 @@ class ConfigureSnapshots extends React.Component {
                 <p className="u-textColor--secondary u-fontSize--large u-fontWeight--bold">To install Velero</p>
                 <div className="flex1 flex-column u-marginBottom--30">
                   {isKurlEnabled ?
-                    <p className="u-fontSize--small flex-auto alignItems--center u-fontWeight--medium u-textColor--bodyCopy u-marginTop--20"><span className="circleNumberGray u-marginRight--10"> 1 </span>Install the CLI on your machine by following the Velero installation instructions at: <a href="https://velero.io/docs/v1.5/basic-install/" target="_blank" rel="noopener noreferrer" className="replicated-link u-marginLeft--5">https://velero.io/docs/v1.5/basic-install/</a> </p>
+                    <p className="u-fontSize--small flex-auto alignItems--center u-fontWeight--medium u-textColor--bodyCopy u-marginTop--20"><span className="circleNumberGray u-marginRight--10"> 1 </span>Install the CLI on your machine by following the Velero installation instructions at: <a href="https://velero.io/docs/v1.6/basic-install/" target="_blank" rel="noopener noreferrer" className="replicated-link u-marginLeft--5">https://velero.io/docs/v1.6/basic-install/</a> </p>
                     :
-                    <p className="u-fontSize--small flex-auto alignItems--center u-fontWeight--medium u-textColor--bodyCopy u-marginTop--20"><span className="circleNumberGray u-marginRight--10"> 1 </span>Install the CLI on your machine by following the <a href="https://velero.io/docs/v1.5/basic-install/" target="_blank" rel="noopener noreferrer" className="replicated-link u-marginLeft--5">Velero installation instructions</a> </p>
+                    <p className="u-fontSize--small flex-auto alignItems--center u-fontWeight--medium u-textColor--bodyCopy u-marginTop--20"><span className="circleNumberGray u-marginRight--10"> 1 </span>Install the CLI on your machine by following the <a href="https://velero.io/docs/v1.6/basic-install/" target="_blank" rel="noopener noreferrer" className="replicated-link u-marginLeft--5">Velero installation instructions</a> </p>
                   }
                   <div className="flex flex1 u-marginTop--20">
                     <div className="flex">

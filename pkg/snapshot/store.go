@@ -39,6 +39,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+const DefaultBackupStorageLocation = "default"
+
 type ConfigureStoreOptions struct {
 	Provider   string
 	Bucket     string
@@ -735,8 +737,6 @@ func GetGlobalStore(ctx context.Context, kotsadmNamespace string, kotsadmVeleroB
 			}
 		}
 
-		break
-
 	case "azure":
 		// TODO validate these keys in a real azure account
 		store.Azure = &types.StoreAzure{
@@ -763,8 +763,6 @@ func GetGlobalStore(ctx context.Context, kotsadmNamespace string, kotsadmVeleroB
 			store.Azure.CloudName = providers.AzureDefaultCloud
 		}
 
-		break
-
 	case "gcp":
 		currentSecret, err := clientset.CoreV1().Secrets(kotsadmVeleroBackendStorageLocation.Namespace).Get(ctx, "cloud-credentials", metav1.GetOptions{})
 		if err != nil && !kuberneteserrors.IsNotFound(err) {
@@ -784,7 +782,6 @@ func GetGlobalStore(ctx context.Context, kotsadmNamespace string, kotsadmVeleroB
 			JSONFile:        jsonFile,
 			UseInstanceRole: jsonFile == "",
 		}
-		break
 	}
 
 	return &store, nil
@@ -871,12 +868,32 @@ func FindBackupStoreLocation(ctx context.Context, kotsadmNamespace string) (*vel
 	}
 
 	for _, backupStorageLocation := range backupStorageLocations.Items {
-		if backupStorageLocation.Name == "default" {
+		if backupStorageLocation.Name == DefaultBackupStorageLocation {
 			return &backupStorageLocation, nil
 		}
 	}
 
 	return nil, errors.New("global config not found")
+}
+
+// UpdateBackupStorageLocation applies an updated Velero backup storage location resource to the cluster
+func UpdateBackupStorageLocation(ctx context.Context, veleroNamespace string, bsl *velerov1.BackupStorageLocation) error {
+	cfg, err := k8sutil.GetClusterConfig()
+	if err != nil {
+		return errors.Wrap(err, "failed to get cluster config")
+	}
+
+	veleroClient, err := veleroclientv1.NewForConfig(cfg)
+	if err != nil {
+		return errors.Wrap(err, "failed to create velero clientset")
+	}
+
+	_, err = veleroClient.BackupStorageLocations(veleroNamespace).Update(ctx, bsl, metav1.UpdateOptions{})
+	if err != nil {
+		return errors.Wrap(err, "failed to update backupstoragelocation")
+	}
+
+	return nil
 }
 
 func BuildAWSCredentials(accessKeyID, secretAccessKey string) ([]byte, error) {
@@ -982,10 +999,14 @@ func validateAWS(storeAWS *types.StoreAWS, bucket string) error {
 		S3ForcePathStyle: aws.Bool(false), // TODO: this may need to be configurable
 	}
 
+	ec2Session, err := session.NewSession()
+	if err != nil {
+		return errors.Wrap(err, "failed to create AWS ec2 session")
+	}
 	if storeAWS.UseInstanceRole {
 		s3Config.Credentials = credentials.NewChainCredentials([]credentials.Provider{
 			&ec2rolecreds.EC2RoleProvider{
-				Client:       ec2metadata.New(session.New()),
+				Client:       ec2metadata.New(ec2Session),
 				ExpiryWindow: 5 * time.Minute,
 			},
 		})
@@ -993,10 +1014,13 @@ func validateAWS(storeAWS *types.StoreAWS, bucket string) error {
 		s3Config.Credentials = credentials.NewStaticCredentials(storeAWS.AccessKeyID, storeAWS.SecretAccessKey, "")
 	}
 
-	newSession := session.New(s3Config)
+	newSession, err := session.NewSession(s3Config)
+	if err != nil {
+		return errors.Wrap(err, "failed to create AWS S3 session")
+	}
 	s3Client := s3.New(newSession)
 
-	_, err := s3Client.HeadBucket(&s3.HeadBucketInput{
+	_, err = s3Client.HeadBucket(&s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
 	})
 
@@ -1038,9 +1062,9 @@ func validateAzure(ctx context.Context, storeAzure *types.StoreAzure, bucket str
 
 	var storageKey string
 	for _, key := range *res.Keys {
-		// uppercase both strings for comparison because the ListKeys call returns e.g. "FULL" but
+		// case-insensitive comparison because the ListKeys call returns e.g. "FULL" but
 		// the storagemgmt.Full constant in the SDK is defined as "Full".
-		if strings.ToUpper(string(key.Permissions)) == strings.ToUpper(string(storagemgmt.Full)) {
+		if strings.EqualFold(string(key.Permissions), string(storagemgmt.Full)) {
 			storageKey = *key.Value
 			break
 		}
@@ -1132,10 +1156,13 @@ func validateOther(ctx context.Context, storeOther *types.StoreOther, bucket str
 		s3Config.Credentials = credentials.NewStaticCredentials(storeOther.AccessKeyID, storeOther.SecretAccessKey, "")
 	}
 
-	newSession := session.New(s3Config)
+	newSession, err := session.NewSession(s3Config)
+	if err != nil {
+		return errors.Wrap(err, "failed to create s3 session")
+	}
 	s3Client := s3.New(newSession)
 
-	_, err := s3Client.HeadBucket(&s3.HeadBucketInput{
+	_, err = s3Client.HeadBucket(&s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
 	})
 
@@ -1180,10 +1207,13 @@ func validateInternal(ctx context.Context, storeInternal *types.StoreInternal, b
 		s3Config.Credentials = credentials.NewStaticCredentials(storeInternal.AccessKeyID, storeInternal.SecretAccessKey, "")
 	}
 
-	newSession := session.New(s3Config)
+	newSession, err := session.NewSession(s3Config)
+	if err != nil {
+		return errors.Wrap(err, "failed to create s3 session")
+	}
 	s3Client := s3.New(newSession)
 
-	_, err := s3Client.HeadBucket(&s3.HeadBucketInput{
+	_, err = s3Client.HeadBucket(&s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
 	})
 
@@ -1228,10 +1258,13 @@ func validateFileSystem(ctx context.Context, storeFileSystem *types.StoreFileSys
 		s3Config.Credentials = credentials.NewStaticCredentials(storeFileSystem.AccessKeyID, storeFileSystem.SecretAccessKey, "")
 	}
 
-	newSession := session.New(s3Config)
+	newSession, err := session.NewSession(s3Config)
+	if err != nil {
+		return errors.Wrap(err, "failed to create s3 session")
+	}
 	s3Client := s3.New(newSession)
 
-	_, err := s3Client.HeadBucket(&s3.HeadBucketInput{
+	_, err = s3Client.HeadBucket(&s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
 	})
 
@@ -1318,4 +1351,41 @@ func resetResticRepositories(ctx context.Context, kotsadmNamespace string) error
 	}
 
 	return nil
+}
+
+// WaitForDefaultBslAvailableAndSynced blocks execution until the default backup storage location to display a status as "AVAILABLE"
+// and also until the backups in the location are available through the Velero api. There is a timeout of 5 minutes, though the
+// default Velero sync time is only 1 minute.
+func WaitForDefaultBslAvailableAndSynced(ctx context.Context, veleroNamespace string) error {
+	now := time.Now()
+	timeout := time.After(5 * time.Minute)
+
+	cfg, err := k8sutil.GetClusterConfig()
+	if err != nil {
+		return errors.Wrap(err, "failed to get cluster config")
+	}
+
+	veleroClient, err := veleroclientv1.NewForConfig(cfg)
+	if err != nil {
+		return errors.Wrap(err, "failed to create clientset")
+	}
+
+	for {
+		select {
+		case <-timeout:
+			return errors.New("timed out waiting for default backup storage location to be available")
+		default:
+			bsl, err := veleroClient.BackupStorageLocations(veleroNamespace).Get(ctx, DefaultBackupStorageLocation, metav1.GetOptions{})
+			if err != nil {
+				return errors.Wrap(err, "failed to get default backup storage location")
+			}
+
+			if bsl.Status.Phase == velerov1.BackupStorageLocationPhaseAvailable && bsl.Status.LastSyncedTime != nil {
+				if bsl.Status.LastSyncedTime.After(now) {
+					return nil
+				}
+			}
+			time.Sleep(10 * time.Second)
+		}
+	}
 }
