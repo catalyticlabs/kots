@@ -10964,7 +10964,7 @@ monaco-editor-webpack-plugin@^1.5.4:
   dependencies:
     "@types/webpack" "^4.4.19"
 
-monaco-editor@0.14.3, monaco-editor@^0.14.2:
+monaco-editor@0.14.3:
   version "0.14.3"
   resolved "https://registry.yarnpkg.com/monaco-editor/-/monaco-editor-0.14.3.tgz#7cc4a4096a3821f52fea9b10489b527ef3034e22"
   integrity sha512-RhaO4xXmWn/p0WrkEOXe4PoZj6xOcvDYjoAh0e1kGUrQnP1IOpc0m86Ceuaa2CLEMDINqKijBSmqhvBQnsPLHQ==
@@ -12643,6 +12643,15 @@ prop-types@15.x, prop-types@^15.5.10, prop-types@^15.5.4, prop-types@^15.5.7, pr
     object-assign "^4.1.1"
     react-is "^16.8.1"
 
+prop-types@^15.8.1:
+  version "15.8.1"
+  resolved "https://registry.yarnpkg.com/prop-types/-/prop-types-15.8.1.tgz#67d87bf1a694f48435cf332c24af10214a3140b5"
+  integrity sha512-oj87CgZICdulUohogVAR7AjlC0327U4el4L6eAvOqCeudMDVU0NThNaV+b9Df4dXgSP1gXMTnPdhfe/2qDH5cg==
+  dependencies:
+    loose-envify "^1.4.0"
+    object-assign "^4.1.1"
+    react-is "^16.13.1"
+
 proxy-addr@~2.0.5:
   version "2.0.5"
   resolved "https://registry.yarnpkg.com/proxy-addr/-/proxy-addr-2.0.5.tgz#34cbd64a2d81f4b1fd21e76f9f06c8a45299ee34"
@@ -13087,14 +13096,12 @@ react-modal@3.11.2:
     react-lifecycles-compat "^3.0.0"
     warning "^4.0.3"
 
-react-monaco-editor@0.18.0:
-  version "0.18.0"
-  resolved "https://registry.yarnpkg.com/react-monaco-editor/-/react-monaco-editor-0.18.0.tgz#098d847733667905aee80a0cd2473e80ab7b1302"
-  integrity sha512-azMSMDF3eS9XFd9RWfujDInYvSQtdipozmEXSJRuJqsq3JmJlToOjMRSNEkTPmxnR6ZcI9DVhMImCLGNgUk5bQ==
+react-monaco-editor@0.47.0:
+  version "0.47.0"
+  resolved "https://registry.yarnpkg.com/react-monaco-editor/-/react-monaco-editor-0.47.0.tgz#6933f6c507297d2de283af9e4f74407f827cfc0f"
+  integrity sha512-uXZMzYJReIHSA41Qjka2LZckEEawPQC0smpeUgkUvyaMiT8y9qFodIcQtLmSUj3g7gd/6W15a73jBs1d6sr+Mw==
   dependencies:
-    "@types/react" "*"
-    monaco-editor "^0.14.2"
-    prop-types "^15.6.2"
+    prop-types "^15.8.1"
 
 react-motion@^0.5.2:
   version "0.5.2"
