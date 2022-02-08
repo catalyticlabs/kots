@@ -134,7 +134,7 @@
     "react-favicon": "^0.0.17",
     "react-helmet": "^5.2.1",
     "react-modal": "3.11.2",
-    "react-monaco-editor": "0.18.0",
+    "react-monaco-editor": "0.47.0",
     "react-select": "^2.4.3",
     "react-tooltip": "4.2.6",
     "react-vis": "^1.11.7",
